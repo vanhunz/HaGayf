@@ -37,12 +37,64 @@ function HeartRatePanel() {
   const [showDetails, setShowDetails] = useState(false);
   const [soundEnabled, setSoundEnabled] = useState(true);
   const [prevAvg, setPrevAvg] = useState(null);
+  const [showReport, setShowReport] = useState(false);
   const audioRef = useRef(null);
   
   const playAlertSound = () => {
     if (soundEnabled && audioRef.current) {
       audioRef.current.play().catch(() => {});
     }
+  };
+
+  const generateHealthReport = () => {
+    if (history.length === 0) {
+      alert('Chưa có dữ liệu đo. Vui lòng đo nhịp tim trước!');
+      return;
+    }
+
+    // Calculate statistics
+    const allAvgs = history.map(h => parseFloat(h.avg));
+    const overallAvg = (allAvgs.reduce((a, b) => a + b, 0) / allAvgs.length).toFixed(1);
+    const overallMax = Math.max(...allAvgs).toFixed(1);
+    const overallMin = Math.min(...allAvgs).toFixed(1);
+    const highCount = allAvgs.filter(v => v > 100).length;
+    const lowCount = allAvgs.filter(v => v < 60).length;
+    const normalCount = allAvgs.filter(v => v >= 60 && v <= 100).length;
+    const avgRisk = (history.reduce((sum, h) => sum + h.risk, 0) / history.length).toFixed(2);
+
+    // Determine overall condition
+    let condition, conditionColor, conditionEmoji;
+    if (highCount > history.length * 0.3) {
+      condition = 'Nhịp nhanh thường xuyên (Tachycardia)';
+      conditionColor = '#ff1744';
+      conditionEmoji = '⚠️';
+    } else if (lowCount > history.length * 0.3) {
+      condition = 'Nhịp chậm thường xuyên (Bradycardia)';
+      conditionColor = '#4fc3f7';
+      conditionEmoji = '🔵';
+    } else if (overallAvg >= 60 && overallAvg <= 80) {
+      condition = 'Tình trạng rất tốt';
+      conditionColor = '#00e676';
+      conditionEmoji = '✅';
+    } else {
+      condition = 'Tình trạng bình thường';
+      conditionColor = '#ffd600';
+      conditionEmoji = '⚡';
+    }
+
+    return {
+      overallAvg,
+      overallMax,
+      overallMin,
+      highCount,
+      lowCount,
+      normalCount,
+      avgRisk,
+      condition,
+      conditionColor,
+      conditionEmoji,
+      totalMeasurements: history.length
+    };
   };
   
   const exportData = () => {
@@ -196,14 +248,7 @@ function HeartRatePanel() {
   return (
     <Section title="Nhịp tim & dự đoán" icon="💓">
       <audio ref={audioRef} src="data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdJivrJBhNjVgodDbq2EcBj+a2/LDciUFLIHO8tiJNwgZaLvt559NEAxQp+PwtmMcBjiR1/LMeSwFJHfH8N2QQAoUXrTp66hVFApGn+DyvmwhBSuBzvLZiTYIG2m98OScTgwOUKXh8LNmHAU7k9n1yn0vBSh+zPLaizsKGGS563+mWBELTKXh8LdnGwU8lNrzzn4sGw==" preload="auto" />
-      {data && (
-        <div className="stats-grid">
-          <StatCard title="Nhịp TB" value={avg} unit=" bpm" icon="❤️" color={pathology.color} trend={parseFloat(trend)} />
-          <StatCard title="Max" value={max} unit=" bpm" icon="⬆️" color="#ff1744" />
-          <StatCard title="Min" value={min} unit=" bpm" icon="⬇️" color="#4fc3f7" />
-          <StatCard title="Rủi ro" value={(data.predictedRisk * 100).toFixed(0)} unit="%" icon="⚠️" color={data.predictedRisk > 0.5 ? '#ff1744' : '#00e676'} />
-        </div>
-      )}
+
       <div style={{ display: 'flex', gap: '8px', marginBottom: '12px', flexWrap: 'wrap', alignItems: 'center' }}>
         <button onClick={load} disabled={loading || isStreaming}>{loading ? 'Đang tải...' : 'Lấy mẫu mới'}</button>
         <button onClick={() => setIsStreaming(!isStreaming)} style={{ background: isStreaming ? '#ff1744' : '#00e676' }}>
@@ -220,6 +265,9 @@ function HeartRatePanel() {
         </button>
         <button onClick={exportData} disabled={history.length === 0} title="Xuất dữ liệu CSV">
           📥 Xuất
+        </button>
+        <button onClick={() => setShowReport(true)} disabled={history.length === 0} style={{ background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', border: 'none' }} title="Xem báo cáo sức khỏe chi tiết">
+          📊 Báo cáo
         </button>
       </div>
       <div style={{ marginBottom: '16px' }}>
@@ -363,17 +411,39 @@ function HeartRatePanel() {
       )}
       {data && (
         <div className="metrics">
-          <div style={{ padding: '12px', background: pathology.color + '22', border: `2px solid ${pathology.color}`, borderRadius: '8px', marginBottom: '16px' }}>
-            <div style={{ fontSize: '18px', fontWeight: 'bold', color: pathology.color }}>⚕ TÌNH TRẠNG: {pathology.status}</div>
-            <div style={{ marginTop: '8px', display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '12px' }}>
-              <div>Nhịp TB: <strong>{avg} bpm</strong></div>
-              <div>Max: <strong style={{ color: '#ff1744' }}>{max} bpm</strong></div>
-              <div>Min: <strong style={{ color: '#4fc3f7' }}>{min} bpm</strong></div>
-              <div>Rủi ro: <strong style={{ color: data.predictedRisk > 0.5 ? '#ff1744' : '#00e676' }}>{data.predictedRisk}</strong></div>
+          {/* Status Card with Key Metrics */}
+          <div style={{ padding: '16px', background: pathology.color + '22', border: `3px solid ${pathology.color}`, borderRadius: '12px', marginBottom: '20px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+              <div>
+                <div style={{ fontSize: '14px', opacity: 0.8, marginBottom: '4px' }}>⚕️ Tình trạng</div>
+                <div style={{ fontSize: '24px', fontWeight: 'bold', color: pathology.color }}>{pathology.status}</div>
+              </div>
+              <div style={{ textAlign: 'right' }}>
+                <div style={{ fontSize: '14px', opacity: 0.8 }}>Nhịp tim hiện tại</div>
+                <div style={{ fontSize: '48px', fontWeight: 'bold', color: pathology.color, lineHeight: 1 }}>{avg}</div>
+                <div style={{ fontSize: '16px', opacity: 0.8 }}>bpm</div>
+              </div>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '12px', paddingTop: '12px', borderTop: '1px solid ' + pathology.color + '44' }}>
+              <div style={{ textAlign: 'center' }}>
+                <div style={{ fontSize: '12px', opacity: 0.7 }}>⬆️ Cao nhất</div>
+                <div style={{ fontSize: '20px', fontWeight: 'bold', color: '#ff1744' }}>{max}</div>
+              </div>
+              <div style={{ textAlign: 'center' }}>
+                <div style={{ fontSize: '12px', opacity: 0.7 }}>⬇️ Thấp nhất</div>
+                <div style={{ fontSize: '20px', fontWeight: 'bold', color: '#4fc3f7' }}>{min}</div>
+              </div>
+              <div style={{ textAlign: 'center' }}>
+                <div style={{ fontSize: '12px', opacity: 0.7 }}>⚠️ Rủi ro</div>
+                <div style={{ fontSize: '20px', fontWeight: 'bold', color: data.predictedRisk > 0.5 ? '#ff1744' : '#00e676' }}>{(data.predictedRisk * 100).toFixed(0)}%</div>
+              </div>
             </div>
           </div>
-          <div>
-            <ResponsiveContainer width="100%" height={250}>
+
+          {/* Main ECG Chart */}
+          <div style={{ marginBottom: '20px' }}>
+            <h4 style={{ marginBottom: '12px', fontSize: '16px', opacity: 0.9 }}>📈 Sơ đồ ECG (60 giây)</h4>
+            <ResponsiveContainer width="100%" height={280}>
               <LineChart data={chartData} margin={{ top: 5, right: 20, bottom: 5, left: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#1a3a4f" />
                 <XAxis dataKey="time" stroke="#888" label={{ value: 'Thời gian (s)', position: 'insideBottomRight', offset: -5 }} />
@@ -383,18 +453,27 @@ function HeartRatePanel() {
               </LineChart>
             </ResponsiveContainer>
           </div>
-          <div className="sparkline">
-            {data.values.map((v, i) => (
-              <div key={i} style={{ height: `${Math.min(120, Math.max(40, v))}%` }} title={`${v.toFixed(0)} bpm`} />
-            ))}
-          </div>
-          <div className="heart-grid">
-            {data.values.map((v, i) => (
-              <div key={i} className="heart-item">
-                <div className="heart-value">{v.toFixed(0)}</div>
-                <div className={`heart-icon ${v > 100 ? 'fast' : v < 60 ? 'slow' : 'normal'}`}>♥</div>
-              </div>
-            ))}
+
+          {/* Simplified Heart Grid - Latest 20 readings */}
+          <div>
+            <h4 style={{ marginBottom: '12px', fontSize: '16px', opacity: 0.9 }}>💓 20 điểm đo gần nhất</h4>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(70px, 1fr))', gap: '8px' }}>
+              {data.values.slice(-20).map((v, i) => (
+                <div key={i} style={{ 
+                  padding: '12px', 
+                  background: v > 100 ? 'rgba(255, 23, 68, 0.1)' : v < 60 ? 'rgba(79, 195, 247, 0.1)' : 'rgba(0, 230, 118, 0.1)',
+                  border: `2px solid ${v > 100 ? '#ff1744' : v < 60 ? '#4fc3f7' : '#00e676'}`,
+                  borderRadius: '8px',
+                  textAlign: 'center'
+                }}>
+                  <div style={{ fontSize: '24px', fontWeight: 'bold', color: v > 100 ? '#ff1744' : v < 60 ? '#4fc3f7' : '#00e676' }}>
+                    {v.toFixed(0)}
+                  </div>
+                  <div style={{ fontSize: '11px', opacity: 0.7, marginTop: '4px' }}>bpm</div>
+                  <div className={`heart-icon ${v > 100 ? 'fast' : v < 60 ? 'slow' : 'normal'}`} style={{ fontSize: '20px', marginTop: '4px' }}>♥</div>
+                </div>
+              ))}
+            </div>
           </div>
         </div>
       )}
@@ -431,6 +510,242 @@ function HeartRatePanel() {
           </div>
         </div>
       )}
+
+      {/* Comprehensive Health Report Modal */}
+      {showReport && (() => {
+        const report = generateHealthReport();
+        if (!report) return null;
+        return (
+          <div className="modal-overlay" onClick={() => setShowReport(false)}>
+            <div className="modal-content" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '900px', maxHeight: '90vh', overflowY: 'auto' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px', paddingBottom: '16px', borderBottom: '2px solid #1e3a5f' }}>
+                <h2 style={{ margin: 0, fontSize: '28px', color: report.conditionColor }}>📋 Báo Cáo Sức Khỏe Tổng Quát</h2>
+                <button onClick={() => setShowReport(false)} style={{ background: 'none', border: 'none', fontSize: '32px', cursor: 'pointer', color: '#888' }}>×</button>
+              </div>
+
+              {/* Overview Statistics */}
+              <div style={{ background: 'linear-gradient(135deg, #667eea22 0%, #764ba222 100%)', padding: '20px', borderRadius: '12px', marginBottom: '24px', border: '2px solid #667eea' }}>
+                <div style={{ display: 'flex', alignItems: 'center', marginBottom: '16px' }}>
+                  <span style={{ fontSize: '48px', marginRight: '16px' }}>{report.conditionEmoji}</span>
+                  <div>
+                    <h3 style={{ margin: 0, fontSize: '24px', color: report.conditionColor }}>{report.condition}</h3>
+                    <p style={{ margin: '4px 0 0', opacity: 0.8 }}>Dựa trên {report.totalMeasurements} lần đo gần nhất</p>
+                  </div>
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '16px' }}>
+                  <div style={{ textAlign: 'center', padding: '12px', background: '#00e67622', borderRadius: '8px', border: '1px solid #00e676' }}>
+                    <div style={{ fontSize: '14px', opacity: 0.8 }}>Nhịp TB</div>
+                    <div style={{ fontSize: '28px', fontWeight: 'bold', color: '#00e676' }}>{report.overallAvg}</div>
+                    <div style={{ fontSize: '12px', opacity: 0.7 }}>bpm</div>
+                  </div>
+                  <div style={{ textAlign: 'center', padding: '12px', background: '#ff174422', borderRadius: '8px', border: '1px solid #ff1744' }}>
+                    <div style={{ fontSize: '14px', opacity: 0.8 }}>Cao nhất</div>
+                    <div style={{ fontSize: '28px', fontWeight: 'bold', color: '#ff1744' }}>{report.overallMax}</div>
+                    <div style={{ fontSize: '12px', opacity: 0.7 }}>bpm</div>
+                  </div>
+                  <div style={{ textAlign: 'center', padding: '12px', background: '#4fc3f722', borderRadius: '8px', border: '1px solid #4fc3f7' }}>
+                    <div style={{ fontSize: '14px', opacity: 0.8 }}>Thấp nhất</div>
+                    <div style={{ fontSize: '28px', fontWeight: 'bold', color: '#4fc3f7' }}>{report.overallMin}</div>
+                    <div style={{ fontSize: '12px', opacity: 0.7 }}>bpm</div>
+                  </div>
+                  <div style={{ textAlign: 'center', padding: '12px', background: report.avgRisk > 0.4 ? '#ff174422' : '#00e67622', borderRadius: '8px', border: '1px solid ' + (report.avgRisk > 0.4 ? '#ff1744' : '#00e676') }}>
+                    <div style={{ fontSize: '14px', opacity: 0.8 }}>Rủi ro TB</div>
+                    <div style={{ fontSize: '28px', fontWeight: 'bold', color: report.avgRisk > 0.4 ? '#ff1744' : '#00e676' }}>{(report.avgRisk * 100).toFixed(0)}%</div>
+                    <div style={{ fontSize: '12px', opacity: 0.7 }}>risk score</div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Distribution */}
+              <div style={{ marginBottom: '24px' }}>
+                <h3 style={{ fontSize: '20px', marginBottom: '12px', color: '#667eea' }}>📊 Phân Bố Nhịp Tim</h3>
+                <div style={{ display: 'flex', gap: '12px', marginBottom: '8px' }}>
+                  <div style={{ flex: report.lowCount || 0.1, background: '#4fc3f7', height: '40px', borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 'bold' }}>
+                    {report.lowCount > 0 && `${report.lowCount} lần`}
+                  </div>
+                  <div style={{ flex: report.normalCount || 0.1, background: '#00e676', height: '40px', borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 'bold' }}>
+                    {report.normalCount > 0 && `${report.normalCount} lần`}
+                  </div>
+                  <div style={{ flex: report.highCount || 0.1, background: '#ff1744', height: '40px', borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 'bold' }}>
+                    {report.highCount > 0 && `${report.highCount} lần`}
+                  </div>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', opacity: 0.8 }}>
+                  <span>🔵 Chậm (&lt;60): {((report.lowCount/report.totalMeasurements)*100).toFixed(0)}%</span>
+                  <span>✅ Bình thường (60-100): {((report.normalCount/report.totalMeasurements)*100).toFixed(0)}%</span>
+                  <span>⚠️ Nhanh (&gt;100): {((report.highCount/report.totalMeasurements)*100).toFixed(0)}%</span>
+                </div>
+              </div>
+
+              {/* Detailed Analysis */}
+              <div style={{ marginBottom: '24px' }}>
+                <h3 style={{ fontSize: '20px', marginBottom: '12px', color: '#667eea' }}>🔍 Phân Tích Chi Tiết</h3>
+                <div style={{ background: '#1e3a5f', padding: '16px', borderRadius: '8px', lineHeight: '1.8' }}>
+                  {report.overallAvg >= 60 && report.overallAvg <= 80 && (
+                    <p><strong style={{ color: '#00e676' }}>✓ Tuyệt vời!</strong> Nhịp tim trung bình của bạn ({report.overallAvg} bpm) nằm trong khoảng lý tưởng cho người trưởng thành khỏe mạnh. Đây là dấu hiệu của một hệ tim mạch hoạt động hiệu quả.</p>
+                  )}
+                  {report.overallAvg > 80 && report.overallAvg <= 100 && (
+                    <p><strong style={{ color: '#ffd600' }}>⚡ Bình thường nhưng hơi cao:</strong> Nhịp tim trung bình {report.overallAvg} bpm vẫn trong giới hạn bình thường nhưng hơi cao. Có thể do stress, caffeine, hoặc thiếu vận động.</p>
+                  )}
+                  {report.overallAvg > 100 && (
+                    <p><strong style={{ color: '#ff1744' }}>⚠️ Cảnh báo nhịp nhanh:</strong> Nhịp tim trung bình {report.overallAvg} bpm cao hơn mức bình thường. Cần theo dõi sát và tham khảo ý kiến bác sĩ nếu tình trạng kéo dài.</p>
+                  )}
+                  {report.overallAvg < 60 && (
+                    <p><strong style={{ color: '#4fc3f7' }}>🔵 Nhịp chậm:</strong> Nhịp tim trung bình {report.overallAvg} bpm thấp hơn mức bình thường. Điều này có thể bình thường với vận động viên, nhưng cũng có thể là dấu hiệu cần kiểm tra.</p>
+                  )}
+                  <p style={{ marginTop: '12px' }}><strong>Biến động:</strong> Chênh lệch giữa cao nhất ({report.overallMax}) và thấp nhất ({report.overallMin}) là {(report.overallMax - report.overallMin).toFixed(0)} bpm. 
+                  {(report.overallMax - report.overallMin) < 20 && ' Biến động nhỏ - rất ổn định.'}
+                  {(report.overallMax - report.overallMin) >= 20 && (report.overallMax - report.overallMin) < 40 && ' Biến động trung bình - bình thường.'}
+                  {(report.overallMax - report.overallMin) >= 40 && ' Biến động lớn - cần theo dõi nguyên nhân.'}
+                  </p>
+                </div>
+              </div>
+
+              {/* Recommendations */}
+              <div style={{ marginBottom: '24px' }}>
+                <h3 style={{ fontSize: '20px', marginBottom: '12px', color: '#667eea' }}>💡 Khuyến Nghị & Giải Pháp</h3>
+                <div style={{ display: 'grid', gap: '12px' }}>
+                  {report.highCount > report.totalMeasurements * 0.2 && (
+                    <div style={{ background: '#ff174422', border: '1px solid #ff1744', padding: '16px', borderRadius: '8px' }}>
+                      <h4 style={{ margin: '0 0 8px', color: '#ff1744' }}>⚠️ Giảm nhịp tim cao</h4>
+                      <ul style={{ margin: '8px 0', paddingLeft: '20px', lineHeight: '1.8' }}>
+                        <li>Tập thở sâu 10 phút mỗi ngày (hít vào 4 giây, giữ 4 giây, thở ra 6 giây)</li>
+                        <li>Giảm caffeine (cà phê, trà đậm, nước tăng lực)</li>
+                        <li>Ngủ đủ 7-8 giờ mỗi đêm</li>
+                        <li>Tập yoga, thiền hoặc các bài tập thư giãn</li>
+                        <li>Kiểm tra với bác sĩ nếu kéo dài &gt; 2 tuần</li>
+                      </ul>
+                    </div>
+                  )}
+                  {report.lowCount > report.totalMeasurements * 0.2 && (
+                    <div style={{ background: '#4fc3f722', border: '1px solid #4fc3f7', padding: '16px', borderRadius: '8px' }}>
+                      <h4 style={{ margin: '0 0 8px', color: '#4fc3f7' }}>🔵 Tăng cường tuần hoàn</h4>
+                      <ul style={{ margin: '8px 0', paddingLeft: '20px', lineHeight: '1.8' }}>
+                        <li>Tăng cường vận động nhẹ: đi bộ 30 phút/ngày</li>
+                        <li>Tập cardio nhẹ: đạp xe, bơi lội</li>
+                        <li>Uống đủ nước (2-2.5 lít/ngày)</li>
+                        <li>Kiểm tra điện giải đồ với bác sĩ</li>
+                        <li>Tránh nhịn ăn kéo dài</li>
+                      </ul>
+                    </div>
+                  )}
+                  <div style={{ background: '#00e67622', border: '1px solid #00e676', padding: '16px', borderRadius: '8px' }}>
+                    <h4 style={{ margin: '0 0 8px', color: '#00e676' }}>✅ Duy trì sức khỏe tim mạch</h4>
+                    <ul style={{ margin: '8px 0', paddingLeft: '20px', lineHeight: '1.8' }}>
+                      <li>Tập thể dục đều đặn 150 phút/tuần (cardio vừa phải)</li>
+                      <li>Duy trì cân nặng hợp lý (BMI 18.5-24.9)</li>
+                      <li>Kiểm tra sức khỏe định kỳ 6 tháng/lần</li>
+                      <li>Quản lý stress hiệu quả</li>
+                      <li>Không hút thuốc, hạn chế rượu bia</li>
+                    </ul>
+                  </div>
+                </div>
+              </div>
+
+              {/* Diet Recommendations */}
+              <div style={{ marginBottom: '24px' }}>
+                <h3 style={{ fontSize: '20px', marginBottom: '12px', color: '#667eea' }}>🍎 Chế Độ Dinh Dưỡng</h3>
+                <div style={{ background: '#1e3a5f', padding: '16px', borderRadius: '8px' }}>
+                  <h4 style={{ color: '#00e676', marginTop: 0 }}>✓ Nên ăn:</h4>
+                  <ul style={{ lineHeight: '1.8', marginBottom: '16px' }}>
+                    <li><strong>Omega-3:</strong> Cá hồi, cá thu, hạt chia, quả óc chó (giảm viêm, ổn định nhịp tim)</li>
+                    <li><strong>Magiê:</strong> Rau xanh đậm, chuối, hạnh nhân, đậu đen (điều hòa nhịp tim)</li>
+                    <li><strong>Kali:</strong> Khoai lang, cà chua, bơ, nước dừa (cân bằng điện giải)</li>
+                    <li><strong>CoQ10:</strong> Thịt bò, cá ngừ, súp lơ xanh (tăng năng lượng tim)</li>
+                    <li><strong>Chất xơ:</strong> Yến mạch, táo, đậu lăng (giảm cholesterol)</li>
+                  </ul>
+                  <h4 style={{ color: '#ff1744', marginTop: '16px' }}>✗ Hạn chế:</h4>
+                  <ul style={{ lineHeight: '1.8', margin: 0 }}>
+                    <li>Muối (&lt;5g/ngày) - tăng huyết áp</li>
+                    <li>Đường tinh luyện - gây viêm mạch máu</li>
+                    <li>Chất béo trans - tăng cholesterol xấu</li>
+                    <li>Thực phẩm chế biến sẵn - nhiều natri</li>
+                    <li>Caffeine dư thừa (&gt;400mg/ngày) - tăng nhịp tim</li>
+                  </ul>
+                </div>
+              </div>
+
+              {/* Daily Schedule */}
+              <div style={{ marginBottom: '24px' }}>
+                <h3 style={{ fontSize: '20px', marginBottom: '12px', color: '#667eea' }}>⏰ Thời Khóa Biểu Khuyến Nghị</h3>
+                <div style={{ display: 'grid', gap: '8px' }}>
+                  {[
+                    { time: '06:00-07:00', icon: '🌅', activity: 'Thức dậy + Đo nhịp tim lúc nghỉ', note: 'Nhịp nghỉ thấp nhất trong ngày' },
+                    { time: '07:00-08:00', icon: '🍳', activity: 'Ăn sáng đầy đủ', note: 'Yến mạch + trái cây + protein' },
+                    { time: '09:00-10:00', icon: '🚶', activity: 'Vận động nhẹ', note: 'Đi bộ hoặc giãn cơ 20 phút' },
+                    { time: '12:00-13:00', icon: '🥗', activity: 'Ăn trưa cân bằng', note: 'Rau xanh + protein + carb phức' },
+                    { time: '14:00-14:30', icon: '😴', activity: 'Nghỉ ngơi ngắn', note: 'Power nap 15-20 phút nếu cần' },
+                    { time: '17:00-18:00', icon: '🏃', activity: 'Tập cardio chính', note: 'Chạy bộ/đạp xe 30-45 phút' },
+                    { time: '19:00-20:00', icon: '🍽️', activity: 'Ăn tối nhẹ', note: 'Trước 20:00, tránh no quá' },
+                    { time: '21:00-22:00', icon: '📱', activity: 'Giảm ánh sáng xanh', note: 'Tắt điện thoại/máy tính' },
+                    { time: '22:00-23:00', icon: '🧘', activity: 'Thư giãn trước ngủ', note: 'Đọc sách, thiền, thở sâu' },
+                    { time: '23:00-06:00', icon: '😴', activity: 'Ngủ đủ giấc', note: '7-8 giờ liên tục' }
+                  ].map((item, i) => (
+                    <div key={i} style={{ background: '#1e3a5f', padding: '12px', borderRadius: '8px', display: 'grid', gridTemplateColumns: 'auto 1fr', gap: '12px', alignItems: 'center' }}>
+                      <div style={{ fontSize: '32px' }}>{item.icon}</div>
+                      <div>
+                        <div style={{ fontWeight: 'bold', color: '#667eea' }}>{item.time} - {item.activity}</div>
+                        <div style={{ fontSize: '13px', opacity: 0.8, marginTop: '4px' }}>{item.note}</div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Important Notes */}
+              <div style={{ marginBottom: '24px' }}>
+                <h3 style={{ fontSize: '20px', marginBottom: '12px', color: '#667eea' }}>⚠️ Lưu Ý Quan Trọng</h3>
+                <div style={{ background: '#ff174422', border: '2px solid #ff1744', padding: '16px', borderRadius: '8px' }}>
+                  <h4 style={{ color: '#ff1744', marginTop: 0 }}>🚨 Cần đến bác sĩ NGAY nếu:</h4>
+                  <ul style={{ lineHeight: '2', margin: 0, fontSize: '15px' }}>
+                    <li>Nhịp tim nghỉ &gt; 120 bpm hoặc &lt; 40 bpm kéo dài</li>
+                    <li>Đau ngực, khó thở khi nghỉ hoặc gắng sức nhẹ</li>
+                    <li>Chóng mặt, ngất xỉu, choáng váng thường xuyên</li>
+                    <li>Tim đập không đều (nhịp nhanh rồi chậm đột ngột)</li>
+                    <li>Đau lan ra cánh tay, hàm, vai, lưng</li>
+                    <li>Vã mồ hôi lạnh, buồn nôn kèm đau ngực</li>
+                  </ul>
+                </div>
+              </div>
+
+              {/* Monitoring Tips */}
+              <div style={{ background: 'linear-gradient(135deg, #667eea22 0%, #764ba222 100%)', padding: '16px', borderRadius: '8px', border: '1px solid #667eea' }}>
+                <h4 style={{ color: '#667eea', marginTop: 0 }}>📝 Mẹo Theo Dõi Hiệu Quả</h4>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '12px', lineHeight: '1.8' }}>
+                  <div>
+                    <strong>🕐 Đo đúng thời điểm:</strong>
+                    <ul style={{ margin: '4px 0', paddingLeft: '20px', fontSize: '14px' }}>
+                      <li>Sáng sau khi thức dậy</li>
+                      <li>Trước và sau tập luyện</li>
+                      <li>Trước khi ngủ</li>
+                    </ul>
+                  </div>
+                  <div>
+                    <strong>📊 Ghi chú kèm theo:</strong>
+                    <ul style={{ margin: '4px 0', paddingLeft: '20px', fontSize: '14px' }}>
+                      <li>Hoạt động trước đó</li>
+                      <li>Cảm giác (stress, mệt...)</li>
+                      <li>Ăn uống, thuốc men</li>
+                    </ul>
+                  </div>
+                  <div>
+                    <strong>📈 Theo dõi xu hướng:</strong>
+                    <ul style={{ margin: '4px 0', paddingLeft: '20px', fontSize: '14px' }}>
+                      <li>Đánh giá theo tuần</li>
+                      <li>So sánh cùng thời điểm</li>
+                      <li>Chú ý thay đổi đột ngột</li>
+                    </ul>
+                  </div>
+                </div>
+              </div>
+
+              <div style={{ marginTop: '24px', textAlign: 'center', padding: '16px', background: '#1e3a5f', borderRadius: '8px' }}>
+                <p style={{ margin: 0, fontSize: '14px', opacity: 0.8 }}>💚 <strong>Lưu ý:</strong> Báo cáo này chỉ mang tính chất tham khảo. Vui lòng tham khảo ý kiến bác sĩ chuyên khoa tim mạch để có chẩn đoán và điều trị chính xác.</p>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </Section>
   );
 }
